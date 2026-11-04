@@ -121,6 +121,13 @@ dialog.zoom .zclose{position:absolute;top:calc(14px + var(--sat));right:calc(14p
 .tag.st-eingeladen{background:rgba(63,166,107,.22);color:#7fd6a2}
 .tag.st-kein{background:rgba(255,255,255,.08);color:var(--muted)}
 .tag.due{background:rgba(239,106,91,.25);color:#ff9d90}
+.tag.sy-ok{background:rgba(63,166,107,.22);color:#7fd6a2}
+.tag.sy-wait{background:rgba(120,160,255,.2);color:#a9c1ff}
+.tag.sy-bad{background:rgba(239,106,91,.25);color:#ff9d90}
+.conn{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:14px;padding:12px 16px;border:1px solid var(--line);border-radius:12px;background:var(--card);font-size:.88em;color:var(--muted)}
+.conn b{color:var(--text)}
+.connBtn{display:flex;gap:8px}
+.connBtn .btn{min-height:44px;padding:8px 16px;font-size:.9em}
 .rdel{font:inherit;font-size:.78em;min-height:44px;padding:8px 14px;border-radius:10px;border:1px solid rgba(239,106,91,.5);background:transparent;color:var(--bad);cursor:pointer;white-space:nowrap}
 @media (max-width:640px){.row{flex-wrap:wrap}.row .info{flex-basis:100%}}
 a{color:var(--primary)}
@@ -164,6 +171,7 @@ a{color:var(--primary)}
 
   <!-- Kontakte -->
   <section id="tab-liste" hidden>
+    <div class="conn" id="conn"></div>
     <div class="stat" id="stats"></div>
     <div class="chips" id="chips"></div>
     <div class="tools">
@@ -178,6 +186,8 @@ a{color:var(--primary)}
 </main>
 
 <dialog id="detail"></dialog>
+<dialog id="invite"></dialog>
+<dialog id="cfgDlg"></dialog>
 <dialog id="zoom" class="zoom"></dialog>
 <div class="toast" id="toast"></div>
 
@@ -233,7 +243,7 @@ const SCRIPT = {
     ["Ich überlege es mir.","Gern. Trag dich trotzdem unverbindlich ein, du bekommst dann nur den Zugangscode."]
   ],
   check: ["Akku voll, Helligkeit hoch, automatische Drehung an","App einmal online geöffnet, Flugmodus-Test gemacht","Hoch- und Querformat kurz geprüft","CSV-Export vom Vortag gesichert"],
-  after: ["Am selben Tag Kontakte durchsehen, Interesse 4–5 zuerst einladen und als „eingeladen“ markieren.","Regelmäßig als CSV exportieren, die Daten liegen nur auf diesem Tablet.","Nur Personen mit Einwilligung kontaktieren, höchstens einmal nachfassen."]
+  after: ["Am selben Tag Kontakte durchsehen, Interesse 4–5 zuerst einladen: „Eingeladen“ legt die Person im Adminpanel als „Code bereit“ an. Den Zugangscode sendest du dort.","Regelmäßig als CSV exportieren, die Daten liegen nur auf diesem Tablet.","Nur Personen mit Einwilligung kontaktieren, höchstens einmal nachfassen."]
 };
 /* ================================================================== */
 
@@ -247,7 +257,7 @@ const save = () => { try{ localStorage.setItem(KEY, JSON.stringify(leads)); }cat
 const STATUS = [
   {k:"interessiert", label:"Interessiert", hint:"Registrierung"},
   {k:"nachdenken",   label:"Denkt nach",   hint:"Nachfrage in ein paar Tagen"},
-  {k:"eingeladen",   label:"Eingeladen",   hint:"Zugangscode gesendet"},
+  {k:"eingeladen",   label:"Eingeladen",   hint:"Im Adminpanel angelegt"},
   {k:"kein",         label:"Kein Interesse", hint:"Nicht mehr kontaktieren"}
 ];
 const stLabel = k => (STATUS.find(s=>s.k===k)||STATUS[0]).label;
@@ -258,6 +268,94 @@ const isDue = l => l.status==="nachdenken" && l.follow && l.follow <= ymd(new Da
 leads.forEach(l => { if(!l.status) l.status = l.invited ? "eingeladen" : "interessiert"; });
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const toast = m => { const t=$("#toast"); t.textContent=m; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),1800); };
+
+/* ===== Verbindung zum Rise-Beyond-Adminpanel =====
+   "Eingeladen" legt die Person als Closed-Beta-Registrierung mit Status "Code bereit" an.
+   Es wird keine Mail verschickt und kein Code erzeugt; das passiert weiter im Adminpanel. */
+const CFG_KEY = "beta_cfg_v1";
+const DEFAULT_API = "https://rise-beyond.xyz/api/akquise/invite";
+let cfg = { api: DEFAULT_API, token: "" };
+try { cfg = { ...cfg, ...JSON.parse(localStorage.getItem(CFG_KEY) || "{}") }; } catch(e){}
+const saveCfg = () => { try{ localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); }catch(e){} };
+const splitName = full => { const p = String(full).replace(/\s+/g," ").trim().split(" ").filter(Boolean);
+  return p.length < 2 ? { first: p[0]||"", last: "" } : { first: p.slice(0,-1).join(" "), last: p[p.length-1] }; };
+const RESULT_TEXT = { created:"Neu im Adminpanel angelegt", promoted:"Bestehende Bewerbung auf „Code bereit“ gesetzt", exists:"War dort schon bereit", already_sent:"Code wurde dort schon versendet" };
+let syncing = false;
+async function syncLead(l){
+  if (!cfg.token) { l.sync = "pending"; l.syncMsg = "Verbindung noch nicht eingerichtet"; return; }
+  try {
+    const r = await fetch(cfg.api, { method:"POST",
+      headers:{ "Content-Type":"application/json", "Authorization":"Bearer " + cfg.token },
+      body: JSON.stringify({ firstName:l.firstName, lastName:l.lastName, email:l.email, reason:l.reason||"", consent:l.consent===true }) });
+    let j = {}; try { j = await r.json(); } catch(e){}
+    if (r.ok) { l.sync = "synced"; l.syncMsg = RESULT_TEXT[j.result] || "Übertragen"; l.syncedAt = new Date().toISOString(); }
+    else if (r.status === 409) { l.sync = "blocked"; l.syncMsg = "Bewerbung wurde abgelehnt, bitte im Adminpanel prüfen"; }
+    else if (r.status === 401) { l.sync = "error"; l.syncMsg = "Token wird nicht akzeptiert"; }
+    else if (r.status === 503 || r.status === 404) { l.sync = "error"; l.syncMsg = "Schnittstelle auf dem Server noch nicht eingerichtet"; }
+    else { l.sync = "error"; l.syncMsg = j.message || ("Fehler " + r.status); }
+  } catch(e) { l.sync = "pending"; l.syncMsg = "Kein Netz, wird später gesendet"; }
+}
+const needsSync = l => l.status === "eingeladen" && l.firstName && l.lastName && l.sync !== "synced" && l.sync !== "blocked";
+async function syncAll(manual){
+  if (syncing) return; syncing = true;
+  try {
+    const todo = leads.filter(needsSync);
+    for (const l of todo) await syncLead(l);
+    save(); render();
+    if (manual) toast(todo.length ? "Übertragung abgeschlossen" : "Nichts zu senden");
+  } finally { syncing = false; }
+}
+window.addEventListener("online", () => syncAll(false));
+
+/* Dialog: Vor-/Nachname bestätigen, bevor jemand im Adminpanel angelegt wird */
+function askInvite(l, ok, cancel){
+  const d = $("#invite"), n = splitName(l.name); let done = false;
+  d.innerHTML = `<h2 style="margin-top:0">Im Adminpanel anlegen</h2>
+    <p class="hint" style="margin-top:0">${esc(l.name)} wird bei Rise Beyond als Closed-Beta-Registrierung mit Status „Code bereit“ angelegt. Es wird keine E-Mail verschickt. Den Zugangscode sendest du anschließend im Adminpanel.</p>
+    <div class="grid" style="margin:16px 0">
+      <div><label for="iF">Vorname</label><input id="iF" value="${esc(l.firstName||n.first)}"></div>
+      <div><label for="iL">Nachname</label><input id="iL" value="${esc(l.lastName||n.last)}"></div>
+      <div class="full"><label>E-Mail</label><input value="${esc(l.email)}" readonly></div></div>
+    <p id="iErr" class="hint" style="color:var(--bad);margin:0 0 12px" hidden></p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn sec" id="iNo" type="button">Abbrechen</button><button class="btn" id="iYes" type="button">Anlegen</button></div>`;
+  d.showModal();
+  $("#iNo").onclick = () => d.close();
+  $("#iYes").onclick = () => {
+    const f = $("#iF").value.trim(), la = $("#iL").value.trim();
+    if (!f || !la) { const e = $("#iErr"); e.textContent = "Bitte Vor- und Nachnamen eintragen."; e.hidden = false; return; }
+    l.firstName = f; l.lastName = la; done = true; d.close(); ok();
+  };
+  d.onclose = () => { if (!done && cancel) cancel(); };
+}
+
+/* Dialog: Verbindung einrichten */
+function openCfg(){
+  const d = $("#cfgDlg");
+  d.innerHTML = `<h2 style="margin-top:0">Verbindung zum Adminpanel</h2>
+    <p class="hint" style="margin-top:0">Der Zugangsschlüssel liegt nur auf diesem Gerät. Du bekommst ihn von mir bzw. aus der Server-Einstellung <b>AKQUISE_API_TOKEN</b>. Bildschirmsperre auf dem Tablet aktiv lassen.</p>
+    <div class="grid" style="margin:16px 0;grid-template-columns:1fr">
+      <div><label for="cApi">Adresse</label><input id="cApi" value="${esc(cfg.api)}" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+      <div><label for="cTok">Zugangsschlüssel</label><input id="cTok" type="password" value="${esc(cfg.token)}" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="mindestens 32 Zeichen"></div></div>
+    <p id="cMsg" class="hint" style="margin:0 0 12px" hidden></p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn sec" id="cTest" type="button">Testen</button><button class="btn" id="cSave" type="button">Speichern</button><button class="btn sec" id="cClose" type="button">Schließen</button></div>`;
+  d.showModal();
+  const msg = (t, bad) => { const m = $("#cMsg"); m.textContent = t; m.style.color = bad ? "var(--bad)" : "var(--primary)"; m.hidden = false; };
+  const read = () => ({ api: $("#cApi").value.trim() || DEFAULT_API, token: $("#cTok").value.trim() });
+  $("#cClose").onclick = () => d.close();
+  $("#cSave").onclick = () => { cfg = read(); saveCfg(); d.close(); render(); syncAll(false); toast("Gespeichert"); };
+  $("#cTest").onclick = async () => {
+    const c = read(); if (!c.token) return msg("Bitte Zugangsschlüssel eintragen.", true);
+    msg("Teste …");
+    try {
+      // Leere Anfrage: bei gültigem Schlüssel antwortet der Server mit 400 (Einwilligung fehlt), es wird nichts angelegt.
+      const r = await fetch(c.api, { method:"POST", headers:{ "Content-Type":"application/json", "Authorization":"Bearer " + c.token }, body: "{}" });
+      if (r.status === 400) msg("Verbindung in Ordnung.");
+      else if (r.status === 401) msg("Der Zugangsschlüssel wird nicht akzeptiert.", true);
+      else if (r.status === 503 || r.status === 404) msg("Die Schnittstelle ist auf dem Server noch nicht eingerichtet.", true);
+      else msg("Unerwartete Antwort: " + r.status, true);
+    } catch(e) { msg("Keine Verbindung (Netz oder Adresse prüfen).", true); }
+  };
+}
 
 /* Tabs */
 const TABS = ["erfassen","liste","skript"];
@@ -291,15 +389,21 @@ $("#form").onsubmit = e => {
   e.preventDefault();
   const email = $("#email").value.trim().toLowerCase();
   if (leads.some(l => l.email === email) && !confirm("Diese E-Mail ist schon gespeichert. Trotzdem nochmal anlegen?")) return;
-  leads.unshift({
+  const form = e.target;
+  const lead = {
     id: Date.now(), created: new Date().toISOString(),
     name: $("#name").value.trim(), email, phone: $("#phone").value.trim(),
     device: $("#device").value, reason: $("#reason").value.trim(),
     where: $("#where").value.trim(), interest: stars, notes: $("#notes").value.trim(),
-    consent: true, status, follow: status==="nachdenken" ? ($("#follow").value || inDays(3)) : "", invited: status==="eingeladen"
-  });
-  save(); e.target.reset(); stars = 3; drawStars(); status = "interessiert"; drawStatus(); toast("Gespeichert");
-  $("#name").focus();
+    consent: true, status, follow: status==="nachdenken" ? ($("#follow").value || inDays(3)) : "", invited: status==="eingeladen", sync: "none"
+  };
+  const finish = () => {
+    leads.unshift(lead); save(); form.reset(); stars = 3; drawStars(); status = "interessiert"; drawStatus(); toast("Gespeichert");
+    $("#name").focus();
+    if (lead.status === "eingeladen") { lead.sync = "pending"; syncAll(false); }
+  };
+  // "Eingeladen" erst nach Bestätigung von Vor-/Nachname speichern; bei Abbruch bleibt das Formular unverändert.
+  if (status === "eingeladen") askInvite(lead, finish, () => {}); else finish();
 };
 
 /* Kontakte */
@@ -315,6 +419,10 @@ function render(){
      <div><b>${leads.filter(l=>new Date(l.created).toDateString()===today).length}</b><span>Heute</span></div>
      <div><b>${leads.filter(l=>l.status==="interessiert").length}</b><span>Interessiert</span></div>
      <div><b>${due}</b><span>Nachfragen fällig</span></div>`;
+  const waiting = leads.filter(needsSync).length, errs = leads.filter(l=>l.status==="eingeladen"&&(l.sync==="error"||l.sync==="blocked")).length;
+  $("#conn").innerHTML = `<div class="connTxt"><b>Adminpanel</b> ${cfg.token ? "verbunden" : "nicht eingerichtet"}${waiting?` · ${waiting} warten auf Übertragung`:""}${errs?` · ${errs} mit Fehler`:""}</div>
+    <div class="connBtn">${waiting && cfg.token ? '<button type="button" class="btn sec" id="cSync">Jetzt senden</button>' : ""}<button type="button" class="btn sec" id="cOpen">${cfg.token ? "Verbindung" : "Einrichten"}</button></div>`;
+  $("#cOpen").onclick = openCfg; if ($("#cSync")) $("#cSync").onclick = () => syncAll(true);
   const chip = (k,t,n) => `<button data-f="${k}" class="${filter===k?'on':''}">${esc(t)} (${n})</button>`;
   $("#chips").innerHTML = chip("alle","Alle",leads.length) +
     STATUS.map(s=>chip(s.k,s.label,leads.filter(l=>l.status===s.k).length)).join("") +
@@ -323,6 +431,7 @@ function render(){
     <div class="row" data-id="${l.id}">
       <div class="info"><strong>${esc(l.name)}</strong><small>${esc(l.email)} · ${esc(l.reason||"–")}</small></div>
       <span class="tag st-${l.status} ${isDue(l)?'due':''}">${esc(stLabel(l.status))}${l.status==="nachdenken"&&l.follow?` · ${fmtDate(l.follow)}`:""}</span>
+      ${l.status==="eingeladen" ? `<span class="tag sy-${l.sync==="synced"?"ok":(l.sync==="error"||l.sync==="blocked")?"bad":"wait"}" title="${esc(l.syncMsg||"")}">${l.sync==="synced"?"im Adminpanel":(l.sync==="error"||l.sync==="blocked")?"Fehler":"wartet"}</span>` : ""}
       <span class="tag ${l.interest>=4?'hot':''}">${"★".repeat(l.interest)}</span>
       <button type="button" class="rdel" data-del="${l.id}" aria-label="${esc(l.name)} löschen">Löschen</button>
     </div>`).join("") : '<p style="color:var(--muted);text-align:center;margin:8px 0">Keine Kontakte in dieser Ansicht.</p>';
@@ -333,7 +442,7 @@ $("#list").onclick = e => {
   const del = e.target.closest("[data-del]");
   if (del) {
     const id = +del.dataset.del, l = leads.find(x=>x.id===id);
-    if (l && confirm(`„${l.name}“ wirklich löschen?`)) { leads = leads.filter(x=>x.id!==id); save(); render(); toast("Gelöscht"); }
+    if (l && confirm(`„${l.name}“ wirklich löschen?` + (l.sync==="synced" ? "\n\nIm Adminpanel bleibt der Eintrag bestehen." : ""))) { leads = leads.filter(x=>x.id!==id); save(); render(); toast("Gelöscht"); }
     return;
   }
   const r=e.target.closest(".row"); if(r) openDetail(+r.dataset.id);
@@ -350,22 +459,37 @@ function openDetail(id){
     <label for="dSt">Status</label>
     <select id="dSt">${STATUS.map(s=>`<option value="${s.k}" ${s.k===l.status?"selected":""}>${esc(s.label)} – ${esc(s.hint||"keine weitere Aktion")}</option>`).join("")}</select>
     <div id="dFollowWrap" style="margin-top:12px" ${l.status==="nachdenken"?"":"hidden"}><label for="dFollow">Nachfragen am</label><input id="dFollow" type="date" value="${esc(l.follow||"")}"></div>
+    ${l.status==="eingeladen" ? `<p class="hint" id="dSync"><b>Adminpanel:</b> ${esc(l.sync==="synced" ? (l.syncMsg||"Übertragen") : l.sync==="blocked" ? l.syncMsg : l.firstName ? (l.syncMsg||"Noch nicht übertragen") : "Noch nicht im Adminpanel angelegt")}</p>` : ""}
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:18px">
+      ${l.status==="eingeladen" && !l.firstName ? '<button class="btn sec" id="dAdd" type="button">Im Adminpanel anlegen</button>' : ""}
+      ${needsSync(l) && cfg.token ? '<button class="btn sec" id="dSend" type="button">Jetzt senden</button>' : ""}
       <button class="btn danger" id="dDel">Löschen</button>
       <button class="btn" id="dClose">Fertig</button></div>`;
   d.showModal();
-  const upd = () => { l.status=$("#dSt").value; l.invited = l.status==="eingeladen";
-    l.follow = l.status==="nachdenken" ? ($("#dFollow").value || l.follow || inDays(3)) : "";
-    $("#dFollowWrap").hidden = l.status!=="nachdenken"; if(l.status==="nachdenken" && !$("#dFollow").value) $("#dFollow").value = l.follow;
+  const apply = next => { l.status = next; l.invited = next==="eingeladen";
+    l.follow = next==="nachdenken" ? ($("#dFollow").value || l.follow || inDays(3)) : "";
     save(); render(); };
-  $("#dSt").onchange = upd; $("#dFollow").onchange = upd;
+  const upd = () => {
+    const prev = l.status, next = $("#dSt").value;
+    if (next === "eingeladen" && prev !== "eingeladen" && l.sync !== "synced") {
+      askInvite(l, () => { apply(next); l.sync = "pending"; save(); d.close(); syncAll(false); }, () => { $("#dSt").value = prev; });
+      return;
+    }
+    if (prev === "eingeladen" && next !== "eingeladen" && l.sync === "synced" &&
+        !confirm("Die Person ist bereits im Adminpanel angelegt und bleibt dort bestehen. Status nur hier ändern?")) { $("#dSt").value = prev; return; }
+    apply(next);
+    $("#dFollowWrap").hidden = next !== "nachdenken"; if (next==="nachdenken" && !$("#dFollow").value) { $("#dFollow").value = l.follow; }
+  };
+  $("#dSt").onchange = upd; $("#dFollow").onchange = () => { l.follow = $("#dFollow").value; save(); render(); };
+  if ($("#dAdd")) $("#dAdd").onclick = () => askInvite(l, () => { l.sync = "pending"; save(); d.close(); syncAll(false); }, () => {});
+  if ($("#dSend")) $("#dSend").onclick = async () => { await syncLead(l); save(); render(); d.close(); openDetail(id); };
   $("#dClose").onclick = () => d.close();
-  $("#dDel").onclick = () => { if(confirm("Kontakt wirklich löschen?")){ leads = leads.filter(x=>x.id!==id); save(); d.close(); render(); } };
+  $("#dDel").onclick = () => { if(confirm("Kontakt wirklich löschen?" + (l.sync==="synced" ? "\n\nIm Adminpanel bleibt der Eintrag bestehen." : ""))){ leads = leads.filter(x=>x.id!==id); save(); d.close(); render(); } };
 }
 
 $("#exportCsv").onclick = () => {
   if(!leads.length) return toast("Keine Daten");
-  const cols = [["created","Erfasst"],["name","Name"],["email","E-Mail"],["phone","Telefon"],["device","Gerät"],["reason","Grund"],["where","Ort"],["interest","Interesse"],["notes","Notizen"],["status","Status"],["follow","Nachfragen am"]];
+  const cols = [["created","Erfasst"],["name","Name"],["email","E-Mail"],["phone","Telefon"],["device","Gerät"],["reason","Grund"],["where","Ort"],["interest","Interesse"],["notes","Notizen"],["status","Status"],["follow","Nachfragen am"],["sync","Adminpanel"]];
   const cell = v => '"' + String(v ?? "").replace(/"/g,'""') + '"';
   const csv = "﻿" + [cols.map(c=>cell(c[1])).join(";"), ...leads.map(l=>cols.map(c=>cell(l[c[0]])).join(";"))].join("\r\n");
   const a = document.createElement("a");
@@ -404,6 +528,7 @@ $("#tab-skript").addEventListener("click", e => {
 $("#zoom").addEventListener("click", () => $("#zoom").close());
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
+if (navigator.onLine && leads.some(needsSync) && cfg.token) syncAll(false);
 </script>
 </body>
 </html>
