@@ -121,6 +121,8 @@ dialog.zoom .zclose{position:absolute;top:calc(14px + var(--sat));right:calc(14p
 .tag.st-eingeladen{background:rgba(63,166,107,.22);color:#7fd6a2}
 .tag.st-kein{background:rgba(255,255,255,.08);color:var(--muted)}
 .tag.due{background:rgba(239,106,91,.25);color:#ff9d90}
+.rdel{font:inherit;font-size:.78em;min-height:44px;padding:8px 14px;border-radius:10px;border:1px solid rgba(239,106,91,.5);background:transparent;color:var(--bad);cursor:pointer;white-space:nowrap}
+@media (max-width:640px){.row{flex-wrap:wrap}.row .info{flex-basis:100%}}
 a{color:var(--primary)}
 @media (max-width:640px){header h1 small{display:none}nav button{padding:10px 12px}}
 @media (orientation:landscape) and (max-height:520px){header{padding-top:calc(6px + var(--sat));padding-bottom:6px}nav button{min-height:42px}}
@@ -322,11 +324,20 @@ function render(){
       <div class="info"><strong>${esc(l.name)}</strong><small>${esc(l.email)} · ${esc(l.reason||"–")}</small></div>
       <span class="tag st-${l.status} ${isDue(l)?'due':''}">${esc(stLabel(l.status))}${l.status==="nachdenken"&&l.follow?` · ${fmtDate(l.follow)}`:""}</span>
       <span class="tag ${l.interest>=4?'hot':''}">${"★".repeat(l.interest)}</span>
+      <button type="button" class="rdel" data-del="${l.id}" aria-label="${esc(l.name)} löschen">Löschen</button>
     </div>`).join("") : '<p style="color:var(--muted);text-align:center;margin:8px 0">Keine Kontakte in dieser Ansicht.</p>';
 }
 $("#chips").onclick = e => { const b=e.target.closest("button"); if(b){ filter=b.dataset.f; render(); } };
 $("#search").oninput = render;
-$("#list").onclick = e => { const r=e.target.closest(".row"); if(r) openDetail(+r.dataset.id); };
+$("#list").onclick = e => {
+  const del = e.target.closest("[data-del]");
+  if (del) {
+    const id = +del.dataset.del, l = leads.find(x=>x.id===id);
+    if (l && confirm(`„${l.name}“ wirklich löschen?`)) { leads = leads.filter(x=>x.id!==id); save(); render(); toast("Gelöscht"); }
+    return;
+  }
+  const r=e.target.closest(".row"); if(r) openDetail(+r.dataset.id);
+};
 
 function openDetail(id){
   const l = leads.find(x=>x.id===id); if(!l) return;
