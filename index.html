@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#4f46e5">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<title>Beta-Akquise</title>
+<style>
+:root{--bg:#f6f7fb;--card:#fff;--text:#1b1d2a;--muted:#6b7086;--primary:#4f46e5;--primary-d:#3730a3;--ok:#16a34a;--bad:#dc2626;--line:#e3e5ef;--r:16px}
+@media (prefers-color-scheme:dark){:root{--bg:#12131a;--card:#1c1e2a;--text:#eef0fa;--muted:#9ba0b8;--line:#2d3042;--primary:#818cf8;--primary-d:#a5b4fc}}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);font-size:18px;display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:12px;padding:12px 20px;background:var(--card);border-bottom:1px solid var(--line)}
+header h1{font-size:20px;margin:0;flex:1}
+nav{display:flex;gap:6px}
+nav button{font:inherit;font-weight:600;padding:12px 20px;border:0;border-radius:12px;background:transparent;color:var(--muted);cursor:pointer}
+nav button.active{background:var(--primary);color:#fff}
+main{flex:1;overflow:auto;padding:20px;max-width:1100px;width:100%;margin:0 auto}
+.card{background:var(--card);border-radius:var(--r);padding:24px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:700px){.grid{grid-template-columns:1fr}nav button{padding:10px 12px}}
+label{display:block;font-weight:600;margin:0 0 6px;font-size:15px}
+input,select,textarea{width:100%;font:inherit;padding:14px;border:1.5px solid var(--line);border-radius:12px;background:var(--bg);color:var(--text)}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--primary);border-color:transparent}
+textarea{min-height:100px;resize:vertical}
+.full{grid-column:1/-1}
+.btn{font:inherit;font-weight:700;padding:16px 28px;border:0;border-radius:14px;background:var(--primary);color:#fff;cursor:pointer}
+.btn.sec{background:var(--bg);color:var(--text);border:1.5px solid var(--line)}
+.btn.danger{background:transparent;color:var(--bad);border:1.5px solid var(--bad)}
+.btn:active{transform:scale(.98)}
+.consent{display:flex;gap:12px;align-items:flex-start;font-size:15px;color:var(--muted)}
+.consent input{width:28px;height:28px;flex:none;margin-top:2px}
+.stars{display:flex;gap:8px}
+.stars button{font-size:32px;background:none;border:0;cursor:pointer;color:var(--line);padding:0}
+.stars button.on{color:#f59e0b}
+.toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%);background:var(--ok);color:#fff;padding:14px 24px;border-radius:14px;font-weight:700;opacity:0;transition:.3s;pointer-events:none}
+.toast.show{opacity:1}
+.stat{display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.stat div{background:var(--card);border-radius:var(--r);padding:14px 22px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.stat b{display:block;font-size:28px;color:var(--primary)}
+.stat span{font-size:13px;color:var(--muted)}
+.row{display:flex;gap:12px;align-items:center;padding:14px 0;border-bottom:1px solid var(--line);cursor:pointer}
+.row:last-child{border:0}
+.row .info{flex:1;min-width:0}
+.row .info small{color:var(--muted);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag{font-size:12px;font-weight:700;padding:4px 10px;border-radius:99px;background:var(--bg);color:var(--muted)}
+.tag.hot{background:#fef3c7;color:#92400e}
+.tools{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.tools input{flex:1;min-width:200px}
+/* Pitch */
+#pitch{position:fixed;inset:0;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;z-index:50;display:none;flex-direction:column;padding:24px 32px}
+#pitch.open{display:flex}
+#pitch .top{display:flex;justify-content:space-between;align-items:center}
+#pitch .top button{background:rgba(255,255,255,.2);color:#fff;border:0;border-radius:99px;padding:10px 20px;font:inherit;font-weight:600;cursor:pointer}
+.slide{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;max-width:800px;margin:0 auto;animation:in .4s}
+@keyframes in{from{opacity:0;transform:translateX(30px)}to{opacity:1;transform:none}}
+.slide .emoji{font-size:110px;line-height:1}
+.slide h2{font-size:clamp(30px,5vw,52px);margin:24px 0 12px}
+.slide p{font-size:clamp(18px,2.6vw,26px);opacity:.92;margin:0;line-height:1.4}
+.slide ul{list-style:none;padding:0;margin:20px 0 0;text-align:left;font-size:clamp(18px,2.6vw,26px)}
+.slide li{margin:12px 0}
+.dots{display:flex;gap:8px;justify-content:center;margin-bottom:14px}
+.dots i{width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,.35)}
+.dots i.on{background:#fff}
+.pnav{display:flex;justify-content:space-between;gap:12px}
+.pnav button{flex:1;max-width:220px;font:inherit;font-weight:700;padding:18px;border:0;border-radius:16px;background:#fff;color:#4f46e5;cursor:pointer}
+.pnav button.ghost{background:rgba(255,255,255,.2);color:#fff}
+dialog{border:0;border-radius:var(--r);padding:24px;max-width:520px;width:92%;background:var(--card);color:var(--text)}
+dialog::backdrop{background:rgba(0,0,0,.5)}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="appTitle">Beta-Akquise</h1>
+  <nav>
+    <button data-tab="erfassen" class="active">➕ Erfassen</button>
+    <button data-tab="liste">📋 Kontakte</button>
+    <button id="startPitch">🎬 Vorstellen</button>
+  </nav>
+</header>
+
+<main>
+  <!-- Erfassen -->
+  <section id="tab-erfassen">
+    <form id="form" class="card">
+      <div class="grid">
+        <div><label for="name">Name *</label><input id="name" required autocomplete="off" placeholder="Vor- und Nachname"></div>
+        <div><label for="email">E-Mail *</label><input id="email" type="email" required autocomplete="off" inputmode="email" placeholder="name@beispiel.de"></div>
+        <div><label for="phone">Telefon (optional)</label><input id="phone" type="tel" inputmode="tel" autocomplete="off"></div>
+        <div><label for="device">Gerät / Plattform</label>
+          <select id="device"><option>iPhone</option><option>Android</option><option>Beides</option><option>Sonstiges</option></select></div>
+        <div class="full"><label for="reason">Grund des Interesses</label>
+          <textarea id="reason" placeholder="Was hat sie/ihn angesprochen? Welches Problem soll die App lösen?"></textarea></div>
+        <div><label for="where">Ort / Anlass</label><input id="where" placeholder="z. B. Stadtpark, Uni-Mensa"></div>
+        <div><label>Interesse</label><div class="stars" id="stars"></div></div>
+        <div class="full"><label for="notes">Notizen</label><input id="notes" placeholder="Wünsche, Rückfragen, Zeitpunkt zum Nachfassen …"></div>
+        <div class="full consent"><input type="checkbox" id="consent" required>
+          <label for="consent" style="font-weight:400;margin:0">Die Person hat zugestimmt, dass ich ihre Daten speichere und sie per E-Mail zur Beta-Teilnahme kontaktiere (jederzeit widerrufbar).</label></div>
+        <div class="full"><button class="btn" type="submit" style="width:100%">Speichern</button></div>
+      </div>
+    </form>
+  </section>
+
+  <!-- Liste -->
+  <section id="tab-liste" hidden>
+    <div class="stat" id="stats"></div>
+    <div class="tools">
+      <input id="search" type="search" placeholder="🔍 Suchen …">
+      <button class="btn sec" id="exportCsv">⬇ CSV exportieren</button>
+    </div>
+    <div class="card" id="list"></div>
+  </section>
+</main>
+
+<!-- Pitch -->
+<div id="pitch">
+  <div class="top"><strong id="pitchTitle"></strong><button id="closePitch">✕ Schließen</button></div>
+  <div id="slideBox" class="slide"></div>
+  <div class="dots" id="dots"></div>
+  <div class="pnav"><button class="ghost" id="prev">← Zurück</button><button id="next">Weiter →</button></div>
+</div>
+
+<dialog id="detail"></dialog>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ================= HIER ANPASSEN ================= */
+const CONFIG = {
+  appName: "Rise Beyond",
+  slides: [
+    { emoji:"👋", title:"Hi, ich bin Kevin", text:"Ich baue Rise Beyond – und suche 20 Menschen für die Closed Beta, die ehrlich sagen, was funktioniert und was nicht." },
+    { emoji:"🤯", title:"Das Problem", text:"Ziele in einer App, Aufgaben in der nächsten, Kalender in der dritten – und am Ende weißt du trotzdem nicht, womit du jetzt anfangen sollst." },
+    { emoji:"🎯", title:"Wisse, was jetzt zählt.", text:"Rise Beyond verbindet Ziele, Aufgaben und Kalender zu einer klaren nächsten Entscheidung." },
+    { emoji:"🚀", title:"Was die App kann", list:["Alles an einem Ort – statt fünf Apps","Eine klare Priorität – mit Begründung","Du entscheidest: annehmen, anpassen oder ablehnen","Tagesbriefing mit freier Fokuszeit"] },
+    { emoji:"🔒", title:"Fair & transparent", list:["Kostenlos in der Beta","Keine Tracking-Cookies","Konto jederzeit löschbar"] },
+    { emoji:"🎟️", title:"So kommst du rein", list:["1. Kurz eintragen (jetzt gleich)","2. Wir prüfen die Bewerbung","3. Zugangscode per E-Mail","4. Loslegen"] },
+    { emoji:"✍️", title:"Mach mit – nur 20 Plätze", text:"Trag dich kurz ein, du bekommst deinen Zugangscode per E-Mail. rise-beyond.xyz" }
+  ]
+};
+/* ================================================= */
+
+const $ = s => document.querySelector(s);
+const KEY = "beta_leads_v1";
+let leads = [];
+try { leads = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch(e){}
+const save = () => { try{ localStorage.setItem(KEY, JSON.stringify(leads)); }catch(e){ alert("Speichern fehlgeschlagen!"); } };
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const toast = m => { const t=$("#toast"); t.textContent=m; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),1800); };
+
+document.title = CONFIG.appName + " – Beta-Akquise";
+$("#appTitle").textContent = CONFIG.appName + " · Beta-Akquise";
+
+// Tabs
+document.querySelectorAll("nav [data-tab]").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav [data-tab]").forEach(x => x.classList.toggle("active", x===b));
+  ["erfassen","liste"].forEach(t => $("#tab-"+t).hidden = t !== b.dataset.tab);
+  if (b.dataset.tab === "liste") render();
+});
+
+// Sterne
+let stars = 3;
+const starBox = $("#stars");
+function drawStars(){ starBox.innerHTML = [1,2,3,4,5].map(i=>`<button type="button" data-i="${i}" class="${i<=stars?'on':''}" aria-label="${i} Sterne">★</button>`).join(""); }
+starBox.onclick = e => { const b = e.target.closest("button"); if(b){ stars = +b.dataset.i; drawStars(); } };
+drawStars();
+
+// Speichern
+$("#form").onsubmit = e => {
+  e.preventDefault();
+  const email = $("#email").value.trim().toLowerCase();
+  if (leads.some(l => l.email === email) && !confirm("Diese E-Mail ist schon gespeichert. Trotzdem nochmal anlegen?")) return;
+  leads.unshift({
+    id: Date.now(), created: new Date().toISOString(),
+    name: $("#name").value.trim(), email, phone: $("#phone").value.trim(),
+    device: $("#device").value, reason: $("#reason").value.trim(),
+    where: $("#where").value.trim(), interest: stars, notes: $("#notes").value.trim(),
+    consent: true, invited: false
+  });
+  save(); e.target.reset(); stars = 3; drawStars(); toast("✓ Gespeichert");
+  $("#name").focus();
+};
+
+// Liste
+function render(){
+  const q = $("#search").value.toLowerCase();
+  const shown = leads.filter(l => !q || [l.name,l.email,l.reason,l.where,l.notes].join(" ").toLowerCase().includes(q));
+  const today = new Date().toDateString();
+  $("#stats").innerHTML =
+    `<div><b>${leads.length}</b><span>Gesamt</span></div>
+     <div><b>${leads.filter(l=>new Date(l.created).toDateString()===today).length}</b><span>Heute</span></div>
+     <div><b>${leads.filter(l=>l.interest>=4).length}</b><span>Heiß (4–5 ★)</span></div>
+     <div><b>${leads.filter(l=>l.invited).length}</b><span>Eingeladen</span></div>`;
+  $("#list").innerHTML = shown.length ? shown.map(l => `
+    <div class="row" data-id="${l.id}">
+      <div class="info"><strong>${esc(l.name)}</strong><small>${esc(l.email)} · ${esc(l.reason||"–")}</small></div>
+      ${l.invited?'<span class="tag">eingeladen</span>':''}
+      <span class="tag ${l.interest>=4?'hot':''}">${"★".repeat(l.interest)}</span>
+    </div>`).join("") : '<p style="color:var(--muted);text-align:center">Noch keine Kontakte.</p>';
+}
+$("#search").oninput = render;
+$("#list").onclick = e => { const r=e.target.closest(".row"); if(r) openDetail(+r.dataset.id); };
+
+function openDetail(id){
+  const l = leads.find(x=>x.id===id); if(!l) return;
+  const d = $("#detail");
+  d.innerHTML = `<h2 style="margin-top:0">${esc(l.name)}</h2>
+    <p><a href="mailto:${esc(l.email)}">${esc(l.email)}</a>${l.phone?` · ${esc(l.phone)}`:""}</p>
+    <p><b>Gerät:</b> ${esc(l.device)}<br><b>Ort:</b> ${esc(l.where||"–")}<br><b>Interesse:</b> ${"★".repeat(l.interest)}<br>
+    <b>Grund:</b> ${esc(l.reason||"–")}<br><b>Notizen:</b> ${esc(l.notes||"–")}<br>
+    <small style="color:var(--muted)">${new Date(l.created).toLocaleString("de-DE")}</small></p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn sec" id="dInv">${l.invited?"Als nicht eingeladen markieren":"Als eingeladen markieren"}</button>
+      <button class="btn danger" id="dDel">Löschen</button>
+      <button class="btn" id="dClose">Schließen</button></div>`;
+  d.showModal();
+  $("#dClose").onclick = () => d.close();
+  $("#dInv").onclick = () => { l.invited = !l.invited; save(); d.close(); render(); };
+  $("#dDel").onclick = () => { if(confirm("Kontakt wirklich löschen?")){ leads = leads.filter(x=>x.id!==id); save(); d.close(); render(); } };
+}
+
+// CSV (Excel-tauglich: Semikolon + BOM)
+$("#exportCsv").onclick = () => {
+  if(!leads.length) return toast("Keine Daten");
+  const cols = [["created","Erfasst"],["name","Name"],["email","E-Mail"],["phone","Telefon"],["device","Gerät"],["reason","Grund"],["where","Ort"],["interest","Interesse"],["notes","Notizen"],["invited","Eingeladen"]];
+  const cell = v => '"' + String(v ?? "").replace(/"/g,'""') + '"';
+  const csv = "﻿" + [cols.map(c=>cell(c[1])).join(";"), ...leads.map(l=>cols.map(c=>cell(l[c[0]])).join(";"))].join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
+  a.download = "beta-tester-" + new Date().toISOString().slice(0,10) + ".csv";
+  a.click();
+};
+
+// Pitch
+let si = 0;
+function slide(){
+  const s = CONFIG.slides[si];
+  $("#slideBox").innerHTML = `<div class="emoji">${s.emoji}</div><h2>${esc(s.title)}</h2>` +
+    (s.text?`<p>${esc(s.text)}</p>`:"") + (s.list?`<ul>${s.list.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`:"");
+  $("#dots").innerHTML = CONFIG.slides.map((_,i)=>`<i class="${i===si?'on':''}"></i>`).join("");
+  $("#prev").style.visibility = si ? "visible":"hidden";
+  const last = si === CONFIG.slides.length-1;
+  $("#next").textContent = last ? "✍️ Jetzt eintragen" : "Weiter →";
+}
+function openPitch(){ si=0; $("#pitchTitle").textContent = CONFIG.appName; $("#pitch").classList.add("open"); slide(); }
+function closePitch(){ $("#pitch").classList.remove("open"); }
+$("#startPitch").onclick = openPitch;
+$("#closePitch").onclick = closePitch;
+$("#prev").onclick = () => { if(si>0){ si--; slide(); } };
+$("#next").onclick = () => { if(si<CONFIG.slides.length-1){ si++; slide(); } else { closePitch(); document.querySelector('[data-tab="erfassen"]').click(); $("#name").focus(); } };
+document.addEventListener("keydown", e => { if(!$("#pitch").classList.contains("open")) return; if(e.key==="ArrowRight") $("#next").click(); if(e.key==="ArrowLeft") $("#prev").click(); if(e.key==="Escape") closePitch(); });
+
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
+</script>
+</body>
+</html>
