@@ -101,8 +101,26 @@ dl.obj dd{margin:3px 0 0;color:var(--muted);line-height:1.5}
 
 dialog{border:1px solid var(--line);border-radius:var(--r);padding:24px;max-width:520px;width:92%;background:#0b0f1a;color:var(--text)}
 dialog::backdrop{background:rgba(0,0,0,.75)}
-dialog.zoom{max-width:none;width:auto;background:transparent;border:0;padding:0;max-height:100dvh}
-dialog.zoom img{display:block;max-height:92dvh;max-height:92vh;max-width:92vw;border-radius:22px;border:2px solid rgba(232,168,56,.55)}
+/* Vollbild-Bild: mittig, Hintergrund fast schwarz, Skript nicht sichtbar */
+dialog.zoom{position:fixed;inset:0;margin:0;padding:0;border:0;width:100vw;height:100vh;height:100dvh;max-width:none;max-height:none;background:#020306;color:var(--text);overflow:hidden}
+dialog.zoom[open]{display:flex;align-items:center;justify-content:center}
+dialog.zoom::backdrop{background:#020306}
+dialog.zoom img{display:block;max-width:92vw;max-height:94vh;max-height:94dvh;width:auto;height:auto;object-fit:contain;border-radius:22px;border:2px solid rgba(232,168,56,.5);box-shadow:0 0 60px rgba(232,168,56,.12)}
+dialog.zoom .zclose{position:absolute;top:calc(14px + var(--sat));right:calc(14px + var(--sar));min-height:44px;padding:10px 18px;border-radius:99px;border:1px solid var(--line);background:rgba(0,0,0,.6);color:var(--muted);font:inherit;font-size:.85em;cursor:pointer}
+/* Status-Auswahl */
+.seg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+@media (orientation:landscape) and (min-width:900px){.seg{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.seg button{font:inherit;text-align:left;padding:12px 14px;min-height:60px;border:1.5px solid var(--line);border-radius:12px;background:rgba(0,0,0,.35);color:var(--text);cursor:pointer;line-height:1.3}
+.seg button small{display:block;color:var(--muted);font-size:.74em;margin-top:2px}
+.seg button.on{border-color:var(--primary);background:rgba(232,168,56,.16);box-shadow:0 0 0 1px var(--primary) inset}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.chips button{font:inherit;font-size:.82em;padding:9px 16px;min-height:44px;border-radius:99px;border:1.5px solid var(--line);background:rgba(0,0,0,.35);color:var(--muted);cursor:pointer}
+.chips button.on{background:var(--primary);color:var(--on-primary);border-color:var(--primary);font-weight:700}
+.tag.st-interessiert{background:rgba(232,168,56,.22);color:#f3bd55}
+.tag.st-nachdenken{background:rgba(120,160,255,.2);color:#a9c1ff}
+.tag.st-eingeladen{background:rgba(63,166,107,.22);color:#7fd6a2}
+.tag.st-kein{background:rgba(255,255,255,.08);color:var(--muted)}
+.tag.due{background:rgba(239,106,91,.25);color:#ff9d90}
 a{color:var(--primary)}
 @media (max-width:640px){header h1 small{display:none}nav button{padding:10px 12px}}
 @media (orientation:landscape) and (max-height:520px){header{padding-top:calc(6px + var(--sat));padding-bottom:6px}nav button{min-height:42px}}
@@ -132,6 +150,8 @@ a{color:var(--primary)}
           <textarea id="reason" placeholder="Was hat sie/ihn angesprochen? Welches Problem soll die App lösen?"></textarea></div>
         <div class="span2"><label for="where">Ort / Anlass</label><input id="where" placeholder="z. B. Stadtpark, Uni-Mensa"></div>
         <div class="span2"><label>Interesse</label><div class="stars" id="stars"></div></div>
+        <div class="full"><label>Status</label><div class="seg" id="statusSeg"></div></div>
+        <div class="full" id="followWrap" hidden><label for="follow">Nachfragen am</label><input id="follow" type="date"></div>
         <div class="full"><label for="notes">Notizen</label><input id="notes" placeholder="Wünsche, Rückfragen, Zeitpunkt zum Nachfassen"></div>
         <div class="full consent"><input type="checkbox" id="consent" required>
           <label for="consent">Die Person hat zugestimmt, dass ich ihre Daten speichere und sie per E-Mail zur Beta-Teilnahme kontaktiere (jederzeit widerrufbar).</label></div>
@@ -143,6 +163,7 @@ a{color:var(--primary)}
   <!-- Kontakte -->
   <section id="tab-liste" hidden>
     <div class="stat" id="stats"></div>
+    <div class="chips" id="chips"></div>
     <div class="tools">
       <input id="search" type="search" placeholder="Suchen">
       <button class="btn sec" id="exportCsv">CSV exportieren</button>
@@ -178,13 +199,13 @@ const SCRIPT = {
     title: "App zeigen",
     intro: "Maximal drei Bilder, jeweils ein bis zwei Sätze. Zeigt die Person schon nach dem ersten Bild Interesse, direkt zum Abschluss springen.",
     steps: [
-      { img:"screenshots/01-heute.jpg", cap:"Ansicht Heute", head:"Briefing und klare nächste Aktion",
+      { img:"screenshots/01-heute.png", cap:"Ansicht Heute", head:"Briefing und klare nächste Aktion",
         see:"Das Tagesbriefing fasst zusammen, wie viele Aufgaben anstehen und wie viel freie Zeit bleibt. Darunter zwei starke Optionen mit Begründung und die Aufgabenliste für heute.",
         say:"Morgens bekommst du ein Briefing: was ansteht und wie viel Zeit du hast. Statt einer endlosen Liste schlägt die App zwei sinnvolle Aufgaben vor und erklärt dir warum. Du entscheidest, womit du anfängst." },
-      { img:"screenshots/02-ziele.jpg", cap:"Ansicht Ziele", head:"Ziele mit Fortschritt und nächstem Schritt",
+      { img:"screenshots/02-ziele.png", cap:"Ansicht Ziele", head:"Ziele mit Fortschritt und nächstem Schritt",
         see:"Jedes Ziel zeigt Fortschritt in Prozent, Zieldatum, erledigte Aufgaben und den nächsten konkreten Schritt.",
         say:"Aufgaben gehören hier immer zu einem Ziel. Du siehst, wie weit du bist und was der nächste Schritt ist. So arbeitest du nicht nur Listen ab, sondern kommst wirklich voran." },
-      { img:"screenshots/03-woche.jpg", cap:"Ansicht Woche", head:"Wochenfokus mit Begründung",
+      { img:"screenshots/03-woche.png", cap:"Ansicht Woche", head:"Wochenfokus mit Begründung",
         see:"Die Woche zeigt die Tage, den Wochenfokus mit den entscheidenden Schwerpunkten und den Bereich „Nicht Priorität“ mit kurzer Begründung.",
         say:"Die App schlägt dir einen Wochenfokus vor, also die wenigen Dinge, die diese Woche wirklich zählen. Und sie sagt dir auch, was warten darf. Das nimmt Druck raus." }
     ],
@@ -219,6 +240,20 @@ const KEY = "beta_leads_v1";
 let leads = [];
 try { leads = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch(e){}
 const save = () => { try{ localStorage.setItem(KEY, JSON.stringify(leads)); }catch(e){ alert("Speichern fehlgeschlagen!"); } };
+
+/* Kategorien für Kontakte */
+const STATUS = [
+  {k:"interessiert", label:"Interessiert", hint:"Registrierung"},
+  {k:"nachdenken",   label:"Denkt nach",   hint:"Nachfrage in ein paar Tagen"},
+  {k:"eingeladen",   label:"Eingeladen",   hint:"Zugangscode gesendet"},
+  {k:"kein",         label:"Kein Interesse", hint:"Nicht mehr kontaktieren"}
+];
+const stLabel = k => (STATUS.find(s=>s.k===k)||STATUS[0]).label;
+const ymd = d => { const z=new Date(d.getTime()-d.getTimezoneOffset()*60000); return z.toISOString().slice(0,10); };
+const inDays = n => { const d=new Date(); d.setDate(d.getDate()+n); return ymd(d); };
+const fmtDate = s => s ? new Date(s+"T12:00:00").toLocaleDateString("de-DE",{day:"2-digit",month:"2-digit"}) : "";
+const isDue = l => l.status==="nachdenken" && l.follow && l.follow <= ymd(new Date());
+leads.forEach(l => { if(!l.status) l.status = l.invited ? "eingeladen" : "interessiert"; });
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const toast = m => { const t=$("#toast"); t.textContent=m; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),1800); };
 
@@ -239,6 +274,16 @@ function drawStars(){ starBox.innerHTML = [1,2,3,4,5].map(i=>`<button type="butt
 starBox.onclick = e => { const b = e.target.closest("button"); if(b){ stars = +b.dataset.i; drawStars(); } };
 drawStars();
 
+/* Status im Formular */
+let status = "interessiert";
+function drawStatus(){
+  $("#statusSeg").innerHTML = STATUS.map(s=>`<button type="button" data-k="${s.k}" class="${s.k===status?'on':''}">${esc(s.label)}<small>${esc(s.hint)}</small></button>`).join("");
+  $("#followWrap").hidden = status !== "nachdenken";
+  if (status === "nachdenken" && !$("#follow").value) $("#follow").value = inDays(3);
+}
+$("#statusSeg").onclick = e => { const b=e.target.closest("button"); if(b){ status=b.dataset.k; drawStatus(); } };
+drawStatus();
+
 /* Speichern */
 $("#form").onsubmit = e => {
   e.preventDefault();
@@ -249,29 +294,37 @@ $("#form").onsubmit = e => {
     name: $("#name").value.trim(), email, phone: $("#phone").value.trim(),
     device: $("#device").value, reason: $("#reason").value.trim(),
     where: $("#where").value.trim(), interest: stars, notes: $("#notes").value.trim(),
-    consent: true, invited: false
+    consent: true, status, follow: status==="nachdenken" ? ($("#follow").value || inDays(3)) : "", invited: status==="eingeladen"
   });
-  save(); e.target.reset(); stars = 3; drawStars(); toast("Gespeichert");
+  save(); e.target.reset(); stars = 3; drawStars(); status = "interessiert"; drawStatus(); toast("Gespeichert");
   $("#name").focus();
 };
 
 /* Kontakte */
+let filter = "alle";
 function render(){
   const q = $("#search").value.toLowerCase();
-  const shown = leads.filter(l => !q || [l.name,l.email,l.reason,l.where,l.notes].join(" ").toLowerCase().includes(q));
+  const shown = leads.filter(l => (filter==="alle" || (filter==="faellig" ? isDue(l) : l.status===filter)) &&
+    (!q || [l.name,l.email,l.reason,l.where,l.notes].join(" ").toLowerCase().includes(q)));
   const today = new Date().toDateString();
+  const due = leads.filter(isDue).length;
   $("#stats").innerHTML =
     `<div><b>${leads.length}</b><span>Gesamt</span></div>
      <div><b>${leads.filter(l=>new Date(l.created).toDateString()===today).length}</b><span>Heute</span></div>
-     <div><b>${leads.filter(l=>l.interest>=4).length}</b><span>Interesse 4–5</span></div>
-     <div><b>${leads.filter(l=>l.invited).length}</b><span>Eingeladen</span></div>`;
+     <div><b>${leads.filter(l=>l.status==="interessiert").length}</b><span>Interessiert</span></div>
+     <div><b>${due}</b><span>Nachfragen fällig</span></div>`;
+  const chip = (k,t,n) => `<button data-f="${k}" class="${filter===k?'on':''}">${esc(t)} (${n})</button>`;
+  $("#chips").innerHTML = chip("alle","Alle",leads.length) +
+    STATUS.map(s=>chip(s.k,s.label,leads.filter(l=>l.status===s.k).length)).join("") +
+    (due ? chip("faellig","Fällig",due) : "");
   $("#list").innerHTML = shown.length ? shown.map(l => `
     <div class="row" data-id="${l.id}">
       <div class="info"><strong>${esc(l.name)}</strong><small>${esc(l.email)} · ${esc(l.reason||"–")}</small></div>
-      ${l.invited?'<span class="tag">eingeladen</span>':''}
+      <span class="tag st-${l.status} ${isDue(l)?'due':''}">${esc(stLabel(l.status))}${l.status==="nachdenken"&&l.follow?` · ${fmtDate(l.follow)}`:""}</span>
       <span class="tag ${l.interest>=4?'hot':''}">${"★".repeat(l.interest)}</span>
-    </div>`).join("") : '<p style="color:var(--muted);text-align:center;margin:8px 0">Noch keine Kontakte.</p>';
+    </div>`).join("") : '<p style="color:var(--muted);text-align:center;margin:8px 0">Keine Kontakte in dieser Ansicht.</p>';
 }
+$("#chips").onclick = e => { const b=e.target.closest("button"); if(b){ filter=b.dataset.f; render(); } };
 $("#search").oninput = render;
 $("#list").onclick = e => { const r=e.target.closest(".row"); if(r) openDetail(+r.dataset.id); };
 
@@ -283,19 +336,25 @@ function openDetail(id){
     <p><b>Gerät:</b> ${esc(l.device)}<br><b>Ort:</b> ${esc(l.where||"–")}<br><b>Interesse:</b> ${"★".repeat(l.interest)}<br>
     <b>Grund:</b> ${esc(l.reason||"–")}<br><b>Notizen:</b> ${esc(l.notes||"–")}<br>
     <small style="color:var(--muted)">${new Date(l.created).toLocaleString("de-DE")}</small></p>
-    <div style="display:flex;gap:10px;flex-wrap:wrap">
-      <button class="btn sec" id="dInv">${l.invited?"Als nicht eingeladen markieren":"Als eingeladen markieren"}</button>
+    <label for="dSt">Status</label>
+    <select id="dSt">${STATUS.map(s=>`<option value="${s.k}" ${s.k===l.status?"selected":""}>${esc(s.label)} – ${esc(s.hint||"keine weitere Aktion")}</option>`).join("")}</select>
+    <div id="dFollowWrap" style="margin-top:12px" ${l.status==="nachdenken"?"":"hidden"}><label for="dFollow">Nachfragen am</label><input id="dFollow" type="date" value="${esc(l.follow||"")}"></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:18px">
       <button class="btn danger" id="dDel">Löschen</button>
-      <button class="btn" id="dClose">Schließen</button></div>`;
+      <button class="btn" id="dClose">Fertig</button></div>`;
   d.showModal();
+  const upd = () => { l.status=$("#dSt").value; l.invited = l.status==="eingeladen";
+    l.follow = l.status==="nachdenken" ? ($("#dFollow").value || l.follow || inDays(3)) : "";
+    $("#dFollowWrap").hidden = l.status!=="nachdenken"; if(l.status==="nachdenken" && !$("#dFollow").value) $("#dFollow").value = l.follow;
+    save(); render(); };
+  $("#dSt").onchange = upd; $("#dFollow").onchange = upd;
   $("#dClose").onclick = () => d.close();
-  $("#dInv").onclick = () => { l.invited = !l.invited; save(); d.close(); render(); };
   $("#dDel").onclick = () => { if(confirm("Kontakt wirklich löschen?")){ leads = leads.filter(x=>x.id!==id); save(); d.close(); render(); } };
 }
 
 $("#exportCsv").onclick = () => {
   if(!leads.length) return toast("Keine Daten");
-  const cols = [["created","Erfasst"],["name","Name"],["email","E-Mail"],["phone","Telefon"],["device","Gerät"],["reason","Grund"],["where","Ort"],["interest","Interesse"],["notes","Notizen"],["invited","Eingeladen"]];
+  const cols = [["created","Erfasst"],["name","Name"],["email","E-Mail"],["phone","Telefon"],["device","Gerät"],["reason","Grund"],["where","Ort"],["interest","Interesse"],["notes","Notizen"],["status","Status"],["follow","Nachfragen am"]];
   const cell = v => '"' + String(v ?? "").replace(/"/g,'""') + '"';
   const csv = "﻿" + [cols.map(c=>cell(c[1])).join(";"), ...leads.map(l=>cols.map(c=>cell(l[c[0]])).join(";"))].join("\r\n");
   const a = document.createElement("a");
@@ -329,7 +388,7 @@ buildScript();
 /* Screenshot groß zeigen */
 $("#tab-skript").addEventListener("click", e => {
   const b = e.target.closest("[data-zoom]"); if(!b) return;
-  const z = $("#zoom"); z.innerHTML = `<img src="${esc(b.dataset.zoom)}" alt="">`; z.showModal();
+  const z = $("#zoom"); z.innerHTML = `<img src="${esc(b.dataset.zoom)}" alt=""><button type="button" class="zclose">Schließen</button>`; z.showModal();
 });
 $("#zoom").addEventListener("click", () => $("#zoom").close());
 
