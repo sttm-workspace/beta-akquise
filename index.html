@@ -128,6 +128,7 @@ dialog.zoom .zclose{position:absolute;top:calc(14px + var(--sat));right:calc(14p
 .conn{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:14px;padding:12px 16px;border:1px solid var(--line);border-radius:12px;background:var(--card);font-size:.88em;color:var(--muted)}
 .conn b{color:var(--text)}
 .connBtn{display:flex;gap:8px}
+.connTxt span{font-size:.85em;color:var(--muted)}
 .connBtn .btn{min-height:44px;padding:8px 16px;font-size:.9em}
 .rdel{font:inherit;font-size:.78em;min-height:44px;padding:8px 14px;border-radius:10px;border:1px solid rgba(239,106,91,.5);background:transparent;color:var(--bad);cursor:pointer;white-space:nowrap}
 @media (max-width:640px){.row{flex-wrap:wrap}.row .info{flex-basis:100%}}
@@ -172,6 +173,7 @@ a{color:var(--primary)}
   <!-- Kontakte -->
   <section id="tab-liste" hidden>
     <div class="conn" id="conn"></div>
+    <div class="conn" id="xsync"></div>
     <div class="stat" id="stats"></div>
     <div class="chips" id="chips"></div>
     <div class="tools">
@@ -188,6 +190,7 @@ a{color:var(--primary)}
 <dialog id="detail"></dialog>
 <dialog id="invite"></dialog>
 <dialog id="cfgDlg"></dialog>
+<dialog id="xdlg"></dialog>
 <dialog id="zoom" class="zoom"></dialog>
 <div class="toast" id="toast"></div>
 
@@ -243,7 +246,7 @@ const SCRIPT = {
     ["Ich überlege es mir.","Gern. Trag dich trotzdem unverbindlich ein, du bekommst dann nur den Zugangscode."]
   ],
   check: ["Akku voll, Helligkeit hoch, automatische Drehung an","App einmal online geöffnet, Flugmodus-Test gemacht","Hoch- und Querformat kurz geprüft","CSV-Export vom Vortag gesichert"],
-  after: ["Am selben Tag Kontakte durchsehen, Interesse 4–5 zuerst einladen: „Eingeladen“ legt die Person im Adminpanel als „Code bereit“ an. Den Zugangscode sendest du dort.","Regelmäßig als CSV exportieren, die Daten liegen nur auf diesem Tablet.","Nur Personen mit Einwilligung kontaktieren, höchstens einmal nachfassen."]
+  after: ["Am selben Tag Kontakte durchsehen, Interesse 4–5 zuerst einladen: „Eingeladen“ legt die Person im Adminpanel als „Code bereit“ an. Den Zugangscode sendest du dort.","Zwischen Tablet und iPhone mit „Abgleich senden/empfangen“ abgleichen (Datei über das Teilen-Menü schicken). Trotzdem regelmäßig als CSV sichern.","Nur Personen mit Einwilligung kontaktieren, höchstens einmal nachfassen."]
 };
 /* ================================================================== */
 
@@ -251,7 +254,33 @@ const $ = s => document.querySelector(s);
 const KEY = "beta_leads_v1";
 let leads = [];
 try { leads = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch(e){}
-const save = () => { try{ localStorage.setItem(KEY, JSON.stringify(leads)); }catch(e){ alert("Speichern fehlgeschlagen!"); } };
+/* ===== Abgleich zwischen Geräten (Tablet, iPhone) =====
+   Jeder Kontakt hat eine feste ID (uid) und einen Änderungszeitpunkt (updatedAt). save() erkennt
+   geänderte Kontakte und setzt ihren Zeitpunkt neu. Gelöschte Kontakte bleiben als Markierung in
+   "graves" (ein Jahr), damit sie beim Abgleich nicht zurückkommen. Bei Konflikten gewinnt die neuere Änderung. */
+const GRAVES_KEY = "beta_graves_v1", META_KEY = "beta_meta_v1";
+let graves = [], meta = { lastSent: null, lastReceived: null };
+try { graves = JSON.parse(localStorage.getItem(GRAVES_KEY) || "[]"); } catch(e){}
+try { meta = { ...meta, ...JSON.parse(localStorage.getItem(META_KEY) || "{}") }; } catch(e){}
+const newUid = () => (crypto.randomUUID ? crypto.randomUUID() : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => { const r = Math.random()*16|0; return (c==="x" ? r : (r&0x3|0x8)).toString(16); }));
+const SIG_KEYS = ["name","email","phone","device","reason","where","interest","notes","status","follow","consent","firstName","lastName","sync","syncMsg","created"];
+const sigOf = l => JSON.stringify(SIG_KEYS.map(k => l[k] ?? ""));
+function stamp(){
+  const now = new Date().toISOString();
+  for (const l of leads) {
+    if (!l.uid) l.uid = newUid();
+    const s = sigOf(l);
+    if (l._sig !== s) { l._sig = s; l.updatedAt = now; }
+  }
+}
+const save = () => {
+  stamp();
+  try{
+    localStorage.setItem(KEY, JSON.stringify(leads));
+    localStorage.setItem(GRAVES_KEY, JSON.stringify(graves));
+    localStorage.setItem(META_KEY, JSON.stringify(meta));
+  }catch(e){ alert("Speichern fehlgeschlagen!"); }
+};
 
 /* Kategorien für Kontakte */
 const STATUS = [
@@ -306,6 +335,140 @@ async function syncAll(manual){
   } finally { syncing = false; }
 }
 window.addEventListener("online", () => syncAll(false));
+
+/* ----- Abgleich zwischen Geräten per Datei (ohne Server) -----
+   "Senden" erzeugt eine kleine Datei mit allen Kontakten (und den Löschmarkierungen), die du über das
+   Teilen-Menü auf das andere Gerät schickst. "Empfangen" führt sie dort mit dem eigenen Stand zusammen:
+   die neuere Änderung gewinnt, Gelöschtes bleibt gelöscht. Es gibt keinen Server und keine Datenbank. */
+const PUBLIC_KEYS = ["uid","name","email","phone","device","reason","where","interest","notes","status","follow","consent","firstName","lastName","sync","syncMsg","created","updatedAt"];
+const pubOf = l => { const o = {}; PUBLIC_KEYS.forEach(k => o[k] = l[k] ?? (k==="interest" ? 3 : k==="consent" ? false : "")); return o; };
+const newLocalId = () => Date.now() * 1000 + Math.floor(Math.random() * 1000);
+const later = (a, b) => Date.parse(a) > Date.parse(b);
+const GRAVE_TTL = 365 * 24 * 3600 * 1000; // Löschmarkierungen bleiben ein Jahr erhalten
+const STATUS_KEYS = ["interessiert","nachdenken","eingeladen","kein"], SYNC_KEYS = ["none","pending","synced","error","blocked"];
+
+function addGrave(uid, at){
+  const g = graves.find(x => x.uid === uid);
+  if (!g) graves.push({ uid, updatedAt: at }); else if (later(at, g.updatedAt)) g.updatedAt = at;
+}
+function removeLead(id){
+  const l = leads.find(x => x.id === id); if (!l) return;
+  leads = leads.filter(x => x.id !== id);
+  if (l.uid) addGrave(l.uid, new Date().toISOString());
+  save();
+}
+
+/* Führt einen Kontakt aus einer Abgleich-Datei mit dem lokalen Stand zusammen.
+   Gibt "neu", "aktualisiert", "gelöscht" oder "" (keine Änderung) zurück. */
+function mergeRemote(r){
+  const loc = leads.find(l => l.uid === r.uid);
+  const g = graves.find(x => x.uid === r.uid);
+  if (r.deleted) {
+    addGrave(r.uid, r.updatedAt);
+    if (loc && !later(loc.updatedAt, r.updatedAt)) { leads = leads.filter(x => x !== loc); return "gelöscht"; }
+    return "";
+  }
+  if (g && !later(r.updatedAt, g.updatedAt)) return "";            // hier gelöscht, die Datei ist nicht neuer
+  if (!loc) {
+    const n = { id: newLocalId() };
+    PUBLIC_KEYS.forEach(k => n[k] = r[k]);
+    n.invited = n.status === "eingeladen"; n._sig = sigOf(n);
+    leads.unshift(n); graves = graves.filter(x => x.uid !== r.uid);
+    return "neu";
+  }
+  if (later(r.updatedAt, loc.updatedAt)) {
+    PUBLIC_KEYS.forEach(k => loc[k] = r[k]);
+    loc.invited = loc.status === "eingeladen"; loc._sig = sigOf(loc);
+    graves = graves.filter(x => x.uid !== r.uid);
+    return "aktualisiert";
+  }
+  return "";
+}
+
+/* Gleiche E-Mail auf beiden Geräten neu erfasst: die neuere Fassung bleibt, die andere wird gelöscht (auf beiden Geräten gleich entschieden). */
+function dedupeByEmail(){
+  const by = new Map();
+  for (const l of leads) { const k = (l.email||"").toLowerCase(); if (!k) continue; (by.get(k) || by.set(k, []).get(k)).push(l); }
+  for (const list of by.values()) {
+    if (list.length < 2) continue;
+    list.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt) || (a.uid < b.uid ? 1 : -1));
+    for (const dup of list.slice(1)) { leads = leads.filter(x => x !== dup); addGrave(dup.uid, new Date().toISOString()); }
+  }
+}
+
+/* Werte aus einer fremden Datei bereinigen, bevor sie gespeichert werden. */
+function cleanRemote(r){
+  const s = (v, n) => String(v ?? "").slice(0, n);
+  const iso = v => Number.isFinite(Date.parse(v)) ? new Date(v).toISOString() : new Date().toISOString();
+  const i = Math.round(Number(r.interest));
+  return {
+    uid: s(r.uid, 64), name: s(r.name, 160), email: s(r.email, 254).toLowerCase(), phone: s(r.phone, 60), device: s(r.device, 40),
+    reason: s(r.reason, 1000), where: s(r.where, 200), interest: Number.isFinite(i) ? Math.min(5, Math.max(1, i)) : 3, notes: s(r.notes, 1000),
+    status: STATUS_KEYS.includes(r.status) ? r.status : "interessiert", follow: /^\d{4}-\d{2}-\d{2}$/.test(String(r.follow ?? "")) ? r.follow : "",
+    consent: r.consent === true, firstName: s(r.firstName, 80), lastName: s(r.lastName, 80),
+    sync: SYNC_KEYS.includes(r.sync) ? r.sync : "none", syncMsg: s(r.syncMsg, 300), created: iso(r.created), updatedAt: iso(r.updatedAt)
+  };
+}
+
+function buildExport(){
+  const now = Date.now();
+  graves = graves.filter(g => now - Date.parse(g.updatedAt) < GRAVE_TTL);
+  return { app: "beta-akquise", version: 1, exportedAt: new Date().toISOString(),
+    leads: leads.map(pubOf), deleted: graves.map(g => ({ uid: g.uid, updatedAt: g.updatedAt })) };
+}
+
+async function sendSync(){
+  stamp();
+  const text = JSON.stringify(buildExport());
+  const d = new Date(), pad = n => String(n).padStart(2, "0");
+  const name = `akquise-abgleich-${ymd(d)}-${pad(d.getHours())}${pad(d.getMinutes())}.json`;
+  const done = msg => { meta.lastSent = new Date().toISOString(); save(); render(); if (msg) toast(msg); };
+  try {
+    const file = new File([text], name, { type: "application/json" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: "Akquise-Abgleich" });
+      return done("Abgleich gesendet");
+    }
+  } catch(e) { if (e && e.name === "AbortError") return; }
+  // Ohne Teilen-Menü: Datei speichern, dann von Hand an das andere Gerät schicken.
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+  a.download = name; a.click();
+  done("Datei gespeichert, an das andere Gerät schicken");
+}
+
+function applyImport(text){
+  let d; try { d = JSON.parse(text); } catch(e) { return toast("Die Datei ist nicht lesbar"); }
+  if (!d || d.app !== "beta-akquise" || !Array.isArray(d.leads)) return toast("Das ist keine Abgleich-Datei");
+  const dels = Array.isArray(d.deleted) ? d.deleted : [];
+  if (d.leads.length > 5000 || dels.length > 20000) return toast("Die Datei ist zu groß");
+  const ok = r => r && typeof r.uid === "string" && r.uid.length > 0 && r.uid.length <= 64 && typeof r.updatedAt === "string" && Number.isFinite(Date.parse(r.updatedAt));
+  const sum = { neu: 0, aktualisiert: 0, gelöscht: 0 };
+  for (const r of d.leads) {
+    if (!ok(r) || typeof r.name !== "string" || typeof r.email !== "string" || !r.email.includes("@")) continue;
+    const res = mergeRemote({ ...cleanRemote(r), deleted: false }); if (res) sum[res]++;
+  }
+  for (const t of dels) { if (!ok(t)) continue; const res = mergeRemote({ uid: String(t.uid), updatedAt: new Date(t.updatedAt).toISOString(), deleted: true }); if (res) sum[res]++; }
+  dedupeByEmail();
+  meta.lastReceived = new Date().toISOString();
+  save(); render();
+  const n = sum.neu + sum.aktualisiert + sum.gelöscht;
+  toast(n ? `Abgleich: ${sum.neu} neu, ${sum.aktualisiert} aktualisiert, ${sum.gelöscht} gelöscht` : "Abgleich: alles schon aktuell");
+}
+
+function openReceive(){
+  const d = $("#xdlg");
+  d.innerHTML = `<h2 style="margin-top:0">Abgleich empfangen</h2>
+    <p class="hint" style="margin-top:0">Wähle die Abgleich-Datei vom anderen Gerät aus. Sie wird mit deinen Kontakten zusammengeführt, die neuere Änderung gewinnt.</p>
+    <input id="xFile" type="file" accept=".json,application/json,text/plain" style="margin:8px 0 16px">
+    <p class="hint" style="margin:0 0 6px">Oder den Abgleich-Text einfügen:</p>
+    <textarea id="xText" rows="3" placeholder="Text hier einfügen" style="margin-bottom:12px"></textarea>
+    <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="xGo" type="button">Text übernehmen</button><button class="btn sec" id="xClose" type="button">Schließen</button></div>`;
+  d.showModal();
+  $("#xClose").onclick = () => d.close();
+  $("#xFile").onchange = async e => { const f = e.target.files[0]; if (!f) return; if (f.size > 8e6) return toast("Die Datei ist zu groß"); applyImport(await f.text()); d.close(); };
+  $("#xGo").onclick = () => { const t = $("#xText").value.trim(); if (!t) return; applyImport(t); d.close(); };
+}
 
 /* Dialog: Vor-/Nachname bestätigen, bevor jemand im Adminpanel angelegt wird */
 function askInvite(l, ok, cancel){
@@ -406,6 +569,26 @@ $("#form").onsubmit = e => {
   if (status === "eingeladen") askInvite(lead, finish, () => {}); else finish();
 };
 
+/* Statusleiste: Verbindung, Einladungen und Abgleich zwischen Geräten */
+function renderConn(){
+  const box = $("#conn"); if (!box) return;
+  const waiting = leads.filter(needsSync).length, errs = leads.filter(l=>l.status==="eingeladen"&&(l.sync==="error"||l.sync==="blocked")).length;
+  box.innerHTML = `<div class="connTxt"><b>Adminpanel</b> ${cfg.token ? "verbunden" : "nicht eingerichtet"}${waiting?` · ${waiting} warten auf Übertragung`:""}${errs?` · ${errs} mit Fehler`:""}</div>
+    <div class="connBtn">${waiting && cfg.token ? '<button type="button" class="btn sec" id="cSync">Jetzt senden</button>' : ""}<button type="button" class="btn sec" id="cOpen">${cfg.token ? "Verbindung" : "Einrichten"}</button></div>`;
+  $("#cOpen").onclick = openCfg;
+  if ($("#cSync")) $("#cSync").onclick = () => syncAll(true);
+  renderXsync();
+}
+
+/* Zeile "Abgleich zwischen Geräten" in der Kontaktliste */
+function renderXsync(){
+  const box = $("#xsync"); if (!box) return;
+  const t = v => v ? new Date(v).toLocaleString("de-DE",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : "noch nie";
+  box.innerHTML = `<div class="connTxt"><b>Abgleich zwischen Geräten</b><br><span>Gesendet: ${t(meta.lastSent)} · Empfangen: ${t(meta.lastReceived)}</span></div>
+    <div class="connBtn"><button type="button" class="btn sec" id="xSend">Senden</button><button type="button" class="btn sec" id="xRecv">Empfangen</button></div>`;
+  $("#xSend").onclick = sendSync; $("#xRecv").onclick = openReceive;
+}
+
 /* Kontakte */
 let filter = "alle";
 function render(){
@@ -419,10 +602,7 @@ function render(){
      <div><b>${leads.filter(l=>new Date(l.created).toDateString()===today).length}</b><span>Heute</span></div>
      <div><b>${leads.filter(l=>l.status==="interessiert").length}</b><span>Interessiert</span></div>
      <div><b>${due}</b><span>Nachfragen fällig</span></div>`;
-  const waiting = leads.filter(needsSync).length, errs = leads.filter(l=>l.status==="eingeladen"&&(l.sync==="error"||l.sync==="blocked")).length;
-  $("#conn").innerHTML = `<div class="connTxt"><b>Adminpanel</b> ${cfg.token ? "verbunden" : "nicht eingerichtet"}${waiting?` · ${waiting} warten auf Übertragung`:""}${errs?` · ${errs} mit Fehler`:""}</div>
-    <div class="connBtn">${waiting && cfg.token ? '<button type="button" class="btn sec" id="cSync">Jetzt senden</button>' : ""}<button type="button" class="btn sec" id="cOpen">${cfg.token ? "Verbindung" : "Einrichten"}</button></div>`;
-  $("#cOpen").onclick = openCfg; if ($("#cSync")) $("#cSync").onclick = () => syncAll(true);
+  renderConn();
   const chip = (k,t,n) => `<button data-f="${k}" class="${filter===k?'on':''}">${esc(t)} (${n})</button>`;
   $("#chips").innerHTML = chip("alle","Alle",leads.length) +
     STATUS.map(s=>chip(s.k,s.label,leads.filter(l=>l.status===s.k).length)).join("") +
@@ -442,7 +622,7 @@ $("#list").onclick = e => {
   const del = e.target.closest("[data-del]");
   if (del) {
     const id = +del.dataset.del, l = leads.find(x=>x.id===id);
-    if (l && confirm(`„${l.name}“ wirklich löschen?` + (l.sync==="synced" ? "\n\nIm Adminpanel bleibt der Eintrag bestehen." : ""))) { leads = leads.filter(x=>x.id!==id); save(); render(); toast("Gelöscht"); }
+    if (l && confirm(`„${l.name}“ wirklich löschen?` + (l.sync==="synced" ? "\n\nIm Adminpanel bleibt der Eintrag bestehen." : ""))) { removeLead(id); render(); toast("Gelöscht"); }
     return;
   }
   const r=e.target.closest(".row"); if(r) openDetail(+r.dataset.id);
@@ -484,7 +664,7 @@ function openDetail(id){
   if ($("#dAdd")) $("#dAdd").onclick = () => askInvite(l, () => { l.sync = "pending"; save(); d.close(); syncAll(false); }, () => {});
   if ($("#dSend")) $("#dSend").onclick = async () => { await syncLead(l); save(); render(); d.close(); openDetail(id); };
   $("#dClose").onclick = () => d.close();
-  $("#dDel").onclick = () => { if(confirm("Kontakt wirklich löschen?" + (l.sync==="synced" ? "\n\nIm Adminpanel bleibt der Eintrag bestehen." : ""))){ leads = leads.filter(x=>x.id!==id); save(); d.close(); render(); } };
+  $("#dDel").onclick = () => { if(confirm("Kontakt wirklich löschen?" + (l.sync==="synced" ? "\n\nIm Adminpanel bleibt der Eintrag bestehen." : ""))){ removeLead(id); d.close(); render(); } };
 }
 
 $("#exportCsv").onclick = () => {
@@ -529,6 +709,7 @@ $("#zoom").addEventListener("click", () => $("#zoom").close());
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
 if (navigator.onLine && leads.some(needsSync) && cfg.token) syncAll(false);
+render();
 </script>
 </body>
 </html>
